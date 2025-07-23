@@ -1,0 +1,143 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+My data question: Predicting the Heating Load (how much energy is required to heat a building), or the energy efficiency of a building based on its physical characteristics. The modeling objective is prediction.
+
+These are the features of the building that serve as the data: Relative coompactness (geometric feature), surface area (total surface area of the buidling), wall area (area of outer walls), roof area (area of roof), overall height (building height), orientation (cardinal direction (2=N, 3=E, 5=W, 5=S)), glazing area (fraction of windows), and glazing area distribution (where windows are located on the building (0 = no windows, 1 = uniform distribution, 2 = more glazing on the North, 3 = more glazing on the East, 4 = more glazing on the South, 5 = more glazing on the West)). The response variable is the Heating Load.
+
+
+```{r}
+install.packages("readxl")
+install.packages("dplyr")
+library(readxl)
+energy <- read_excel("ENB2012_data.xlsx")
+```
+
+```{r}
+energy <- energy %>% 
+  mutate(across(c(Orientation, Glazing_Area_Distribution), as.factor))
+
+```
+
+```{r}
+library(recipes)
+library(rsample)
+
+
+set.seed(123)
+split <- initial_split(energy, prop = 0.75)
+train <- training(split)
+test<- testing(split)
+
+train %>%
+  mutate(zscore = scale(Heating_Load)) %>%
+  filter(abs(zscore) > 3)
+
+#Feature Engineering
+
+train <- train %>%
+  mutate(glazing_type = if_else(Glazing_Area_Distribution == 0, "None", "Present")) %>%
+  mutate(glazing_type = as.factor(glazing_type)) %>%
+  mutate(surface_height = Surface_Area * Overall_Height)
+
+test <- test %>%
+  mutate(glazing_type = if_else(Glazing_Area_Distribution == 0, "None", "Present")) %>%
+  mutate(glazing_type = as.factor(glazing_type)) %>%
+  mutate(surface_height = Surface_Area * Overall_Height)
+
+energy_recipe <- recipe(Heating_Load ~ ., data = train)%>%
+  step_rm(Glazing_Area_Distribution) %>%
+ step_rm(Orientation) %>%
+step_dummy(all_nominal_predictors()) %>%
+  step_normalize(all_numeric_predictors())%>%
+step_impute_median(all_numeric_predictors()) %>%
+  step_impute_mode(all_nominal_predictors()) 
+
+
+prepped <- prep(energy_recipe)
+
+train_processed <- bake(prepped, new_data = NULL)
+test_processed <- bake(prepped, new_data = test)
+
+```
+```{r}
+ggplot(train, aes(x = Heating_Load, fill = Orientation)) + geom_histogram(position = "dodge", alpha = 0.5, bins = 30)
+labs(title = "Heating Load by Orientation")
+
+ggplot(train, aes(x = Heating_Load)) + geom_histogram(bins = 30)
+labs(title = "Distribution of Heating Load", x = "Heating Load", y = "Count")
+
+train %>%
+  group_by(Surface_Area, Relative_Compactness, Roof_Area, Overall_Height, Glazing_Area, Orientation, Glazing_Area_Distribution, Wall_Area) %>%
+  summarise(mean_Heating = mean(Heating_Load, .groups = "drop")) %>%
+  arrange(mean_Heating)
+
+ggplot(train, aes(x = Wall_Area, y = Heating_Load)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE, color = "black") +
+  labs(title = "Heating Load vs Wall Area") 
+
+ggplot(train, aes(x = Roof_Area, y = Heating_Load)) + geom_point(color = "tomato") + geom_smooth(method = "lm", se = FALSE, color = "black") + labs(title = "Heating Load vs Roof Area")
+
+ggplot(train, aes(x = Surface_Area, y = Heating_Load)) + geom_point(color = "blue") + geom_smooth(method = "lm", se = FALSE, color = "black") + labs(title = "Heating Load vs Surface Area")
+
+ggplot(train, aes(x = Relative_Compactness, y = Heating_Load)) + geom_point(color = "pink") + geom_smooth(method = "lm", se = FALSE, color = "black") + labs(title = "Heating Load vs Relative Compactness")
+
+ggplot(train, aes(x = Overall_Height, y = Heating_Load)) + geom_point(color = "purple") + geom_smooth(method = "lm", se = FALSE, color = "black") + labs(title = "Heating Load vs Overall Height")
+
+ggplot(train, aes(x = Glazing_Area, y = Heating_Load)) + geom_point(color = "darkgreen") + geom_smooth(method = "lm", se = FALSE, color = "black") + labs(title = "Heating Load vs Glazing Area")
+
+ggplot(train, aes(x = Heating_Load, color = Glazing_Area_Distribution)) +
+  geom_density() +
+  labs(title = "Heating Load Density by Glazing Area Distribution") 
+
+ggplot(train, aes(x = Heating_Load, color = glazing_type)) +
+  geom_density() +
+  labs(title = "Heating Load Density by Glazing Type") 
+
+```
+- Heating Load ranged from 6 to 43 with a mean around 22 and a right-skewed distribution. Most buildings were clustered between 15 and 30
+- I made a histogram comparing the Heating Load and Orientation and found that there is no clear relationship between them despite expectations that building orientation would influence heating efficiency due to sun exposure; there was no clustering or directional advantage. Since orientation adds no predictive value, I'm going to be discluding it from the final regression model.
+- Roof Area has a fairly negative linear relationship with Heating Load where larger roofs (220 m^2) were associated with lower heating load
+- Wall Area was quite scattered with clustering aaround the middle, but with a fairly positive linear relationship.A smaller wall area (250-300 m^2) will lead to less energy usage, while a higher one (>400), will lead to more energy usage. 
+- Surface Area was also quite scattered, but there was a negative trend where a larger surface area (>700) would require less heating 
+- Relative Compactness showed a surprisingly positive correlation, a value <0.75 (lower compactness) provides least Heating Load. 
+- There were only two height values, 3.5 and 7.0, and the relationship is positive and linear so thattaller buildings needed more heating
+- Glazing Area Distribution had a slight positive relationship, more windows meant slightly more heating, but the effect was minor
+- For Glazing Area Distribution, I made a density plot. Group 0, or no windows, peaks far to the left, meaning it has a lower heating load, but groups 1-5 have similar shapes, meaning they don't contribute much unique information on thier own, which is why I collapsed it into a binary variable (none vs. present).
+- Feature engineering: I also combined surface area and height as something that was not considered was taller buildings with more surface area or shorter buildings with less.
+
+#Model Training
+I chose to use a multiple linear regression model because it is an interpretable model that works well when the relationship between predictors and the outcome is approximately linear. It allows us to understand how each feature affects Heating Load. The model was trained using a 75/25 train-test splot and I used a 5-fold cross-validation to evaluate performance. 
+```{r}
+library(tidymodels)
+lm_model <- linear_reg() %>%
+  set_engine("lm")
+lm_workflow <- workflow() %>%
+  add_model(lm_model) %>%
+  add_recipe(energy_recipe)
+lm_fit <- fit(lm_workflow, data = train)
+
+lm_predictions <- predict(lm_fit, test) %>%
+  bind_cols(test)
+
+metrics <- metric_set(rmse, rsq, mae)
+
+metrics(lm_predictions, truth = Heating_Load, estimate = .pred)
+
+tidy(lm_fit) 
+```
+#model tuning using K-Fold Cross Validation (5 folds)
+```{r}
+cv_folds <- vfold_cv(train, v = 5)
+
+lm_resampled <- fit_resamples(lm_workflow, resamples = cv_folds, metrics = metric_set(rmse, rsq, mae))
+
+collect_metrics(lm_resampled)
+```
+
+Evaluating the RMSE, MAE, and R^2 metrics, I found that the model shows strong performance indicated by a mae of just 1.09 and rmse of 1.64, a low standard error rate, and a high R^2 value. The model explains 97.2% ofo the variance in Heating Load. I used the model to make predictions on unseen data, and found that relative compactness (positive effect), overall height (negative effect), and the engineered surface height (positive effect) interaction terms were most influential. Larger buildings with greater surface area x height tend to require more heating energy. Interestingly, I also found that taller overall height uses less heating, possibly due to internal heat distribution. Surprisingly, as buildings are more compact, they also require more heating. This could be due to interaction with other variables. Surface area and glazing area and glazing type were also moderately or weakly strong predictors was slightly week, more surface area more windows increase heating load slightly. Wall area was not statistically significant, and the model dropped roof area due to collinearity.
+
+This indicates that building shape and size significantly affect energy efficiency. This model can be used by architects and engineers to estimate Heating Load in the design phase and make adjustments to minimize energy consumption. 
