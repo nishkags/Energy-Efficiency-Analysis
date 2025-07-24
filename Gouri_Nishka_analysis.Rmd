@@ -5,7 +5,8 @@ output: html_notebook
 
 My data question: Predicting the Heating Load (how much energy is required to heat a building), or the energy efficiency of a building based on its physical characteristics. The modeling objective is prediction.
 
-These are the features of the building that serve as the data: Relative coompactness (geometric feature), surface area (total surface area of the buidling), wall area (area of outer walls), roof area (area of roof), overall height (building height), orientation (cardinal direction (2=N, 3=E, 5=W, 5=S)), glazing area (fraction of windows), and glazing area distribution (where windows are located on the building (0 = no windows, 1 = uniform distribution, 2 = more glazing on the North, 3 = more glazing on the East, 4 = more glazing on the South, 5 = more glazing on the West)). The response variable is the Heating Load.
+These are the features of the building that serve as the data: Relative compactness (geometric feature), surface area (total surface area of the building), wall area (area of outer walls), roof area (area of roof), overall height (building height), orientation (cardinal direction (2=N, 3=E, 5=W, 5=S)), glazing area (fraction of windows), and glazing area distribution (where windows are located on the building (0 = no windows, 1 = uniform distribution, 2 = more glazing on the North, 3 = more glazing on the East, 4 = more glazing on the South, 5 = more glazing on the West)). The response variable is the Heating Load.
+
 
 
 ```{r}
@@ -99,18 +100,18 @@ ggplot(train, aes(x = Heating_Load, color = glazing_type)) +
 
 ```
 - Heating Load ranged from 6 to 43 with a mean around 22 and a right-skewed distribution. Most buildings were clustered between 15 and 30
-- I made a histogram comparing the Heating Load and Orientation and found that there is no clear relationship between them despite expectations that building orientation would influence heating efficiency due to sun exposure; there was no clustering or directional advantage. Since orientation adds no predictive value, I'm going to be discluding it from the final regression model.
+- I made a histogram comparing the Heating Load and Orientation and found that there is no clear relationship between them despite expectations that building orientation would influence heating efficiency due to sun exposure; there was no clustering or directional advantage. Since orientation adds no predictive value, I'm going to be excluding it from the final regression model.
 - Roof Area has a fairly negative linear relationship with Heating Load where larger roofs (220 m^2) were associated with lower heating load
-- Wall Area was quite scattered with clustering aaround the middle, but with a fairly positive linear relationship.A smaller wall area (250-300 m^2) will lead to less energy usage, while a higher one (>400), will lead to more energy usage. 
+- Wall Area was quite scattered with clustering around the middle, but with a fairly positive linear relationship.A smaller wall area (250-300 m^2) will lead to less energy usage, while a higher one (>400), will lead to more energy usage. 
 - Surface Area was also quite scattered, but there was a negative trend where a larger surface area (>700) would require less heating 
 - Relative Compactness showed a surprisingly positive correlation, a value <0.75 (lower compactness) provides least Heating Load. 
-- There were only two height values, 3.5 and 7.0, and the relationship is positive and linear so thattaller buildings needed more heating
+- There were only two height values, 3.5 and 7.0, and the relationship is positive and linear so that taller buildings needed more heating
 - Glazing Area Distribution had a slight positive relationship, more windows meant slightly more heating, but the effect was minor
-- For Glazing Area Distribution, I made a density plot. Group 0, or no windows, peaks far to the left, meaning it has a lower heating load, but groups 1-5 have similar shapes, meaning they don't contribute much unique information on thier own, which is why I collapsed it into a binary variable (none vs. present).
+- For Glazing Area Distribution, I made a density plot. Group 0, or no windows, peaks far to the left, meaning it has a lower heating load, but groups 1-5 have similar shapes, meaning they don't contribute much unique information on their own, which is why I collapsed it into a binary variable (none vs. present).
 - Feature engineering: I also combined surface area and height as something that was not considered was taller buildings with more surface area or shorter buildings with less.
 
 #Model Training
-I chose to use a multiple linear regression model because it is an interpretable model that works well when the relationship between predictors and the outcome is approximately linear. It allows us to understand how each feature affects Heating Load. The model was trained using a 75/25 train-test splot and I used a 5-fold cross-validation to evaluate performance. 
+I chose to use a multiple linear regression model because it is an interpret able model that works well when the relationship between predictors and the outcome is approximately linear. It allows us to understand how each feature affects Heating Load. The model was trained using a 75/25 train-test split and I used a 5-fold cross-validation to evaluate performance. 
 ```{r}
 library(tidymodels)
 lm_model <- linear_reg() %>%
@@ -129,6 +130,10 @@ metrics(lm_predictions, truth = Heating_Load, estimate = .pred)
 
 tidy(lm_fit) 
 ```
+# actual vs. predicted Heating Load visualization 
+```{r}
+ggplot(lm_predictions, aes(x = Heating_Load, y = .pred)) + geom_point(color = "red", alpha = 0.6) + geom_abline(slope = 1, intercept = 0) + labs(title = "Predicted vs. Actual Heating Load", x = "Actual Heating Load", y = "Predicted Heating Load")
+```
 #model tuning using K-Fold Cross Validation (5 folds)
 ```{r}
 cv_folds <- vfold_cv(train, v = 5)
@@ -138,6 +143,6 @@ lm_resampled <- fit_resamples(lm_workflow, resamples = cv_folds, metrics = metri
 collect_metrics(lm_resampled)
 ```
 
-Evaluating the RMSE, MAE, and R^2 metrics, I found that the model shows strong performance indicated by a mae of just 1.09 and rmse of 1.64, a low standard error rate, and a high R^2 value. The model explains 97.2% ofo the variance in Heating Load. I used the model to make predictions on unseen data, and found that relative compactness (positive effect), overall height (negative effect), and the engineered surface height (positive effect) interaction terms were most influential. Larger buildings with greater surface area x height tend to require more heating energy. Interestingly, I also found that taller overall height uses less heating, possibly due to internal heat distribution. Surprisingly, as buildings are more compact, they also require more heating. This could be due to interaction with other variables. Surface area and glazing area and glazing type were also moderately or weakly strong predictors was slightly week, more surface area more windows increase heating load slightly. Wall area was not statistically significant, and the model dropped roof area due to collinearity.
+Evaluating the RMSE, MAE, and R^2 metrics, I found that the model shows strong performance indicated by a mae of just 1.09 and rmse of 1.64, a low standard error rate, and a high R^2 value. The model explains 97.2% of the variance in Heating Load. I used the model to make predictions on unseen data, and found that relative compactness (positive effect), overall height (negative effect), and the engineered surface height (positive effect) interaction terms were most influential. Larger buildings with greater surface area x height tend to require more heating energy. Interestingly, I also found that taller overall height uses less heating, possibly due to internal heat distribution. Surprisingly, as buildings are more compact, they also require more heating. This could be due to interaction with other variables. Surface area, glazing area, and glazing type were also moderately or weakly strong predictors; more surface area more windows increase heating load slightly. Wall area was not statistically significant, and the model dropped roof area due to collinearity.
 
 This indicates that building shape and size significantly affect energy efficiency. This model can be used by architects and engineers to estimate Heating Load in the design phase and make adjustments to minimize energy consumption. 
